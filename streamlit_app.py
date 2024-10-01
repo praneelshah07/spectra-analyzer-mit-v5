@@ -336,8 +336,9 @@ with col2:
                 for fg in st.session_state['functional_groups']:
                     fg_wavelength = fg['Wavelength']
                     fg_label = fg['Functional Group']
+                    # Add a highlighted box annotation for the functional group
                     ax.axvline(fg_wavelength, color='grey', linestyle='--')
-                    ax.text(fg_wavelength, 1, fg_label, fontsize=12, color='black', ha='center')
+                    ax.text(fg_wavelength, 1, fg_label, fontsize=12, color='black', ha='center', bbox=dict(facecolor='yellow', alpha=0.5))
 
                 # Customize plot
                 ax.set_xlim([x_axis.min(), x_axis.max()])
