@@ -1,1 +1,7 @@
 streamlit
+matplotlib
+plotly
+pandas
+scipy
+fastcluster
+rdkit-pypi
