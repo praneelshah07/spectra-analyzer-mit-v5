@@ -81,21 +81,6 @@ def filter_molecules_by_functional_group(smiles_list, functional_group_smarts):
             filtered_smiles.append(smiles)
     return filtered_smiles
 
-# Function for Advanced Filtering based on input functional groups, adding hydrogens for C-H detection
-@st.cache_data
-def advanced_filtering_by_bond(smiles_list, bond_pattern):
-    filtered_smiles = []
-    if bond_pattern == "C-H":
-        bond_smarts = "[C][H]"  # SMARTS for C-H bond
-    else:
-        bond_smarts = bond_pattern  # Use the input directly for other bond patterns like C=C or C#C
-    for smiles in smiles_list:
-        mol = Chem.MolFromSmiles(smiles)
-        mol_with_h = Chem.AddHs(mol)  # Add explicit hydrogens
-        if mol_with_h.HasSubstructMatch(Chem.MolFromSmarts(bond_smarts)):
-            filtered_smiles.append(smiles)
-    return filtered_smiles
-
 # Compute the distance matrix
 def compute_serial_matrix(dist_mat, method="ward"):
     if dist_mat.shape[0] < 2:
@@ -154,9 +139,8 @@ if data is not None:
     st.write(data[columns_to_display])
 
 # UI Rearrangement
-# Step 1: Filter Selection
-use_smarts_filter = st.checkbox('Apply SMARTS Filtering')
-use_advanced_filter = st.checkbox('Apply Advanced Filtering')
+# Step 1: SMARTS filtering
+use_smarts_filter = st.checkbox('Apply SMARTS Filtering', value=False)
 
 # Ensure filtered_smiles is always initialized
 filtered_smiles = data['SMILES'].unique()
@@ -170,13 +154,6 @@ if use_smarts_filter:
             st.write(f"Filtered dataset to {len(filtered_smiles)} molecules using SMARTS pattern.")
         except Exception as e:
             st.error(f"Invalid SMARTS pattern: {e}")
-
-# Step 2 (Advanced): Apply advanced filtering if selected
-if use_advanced_filter:
-    bond_input = st.text_input("Enter a bond type (e.g., C-C, C#C, C-H):", "")
-    if bond_input:
-        filtered_smiles = advanced_filtering_by_bond(data['SMILES'].unique(), bond_input)
-        st.write(f"Filtered dataset to {len(filtered_smiles)} molecules with bond pattern '{bond_input}'.")
 
 # Step 3: Select molecule by SMILES
 selected_smiles = st.multiselect('Select molecules by SMILES to highlight:', filtered_smiles)
