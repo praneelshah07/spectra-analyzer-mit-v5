@@ -31,6 +31,10 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# Initialize session state for functional groups
+if 'functional_groups' not in st.session_state:
+    st.session_state['functional_groups'] = []
+
 # Preloaded zip
 ZIP_URL = 'https://raw.githubusercontent.com/praneelshah07/MIT-Project/main/ASM_Vapor_Spectra.csv.zip'
 
@@ -97,19 +101,36 @@ def filter_molecules_by_functional_group(smiles_list, functional_group_smarts):
             filtered_smiles.append(smiles)
     return filtered_smiles
 
-# Function for Advanced Filtering based on input functional groups, adding hydrogens for C-H detection
+# Enhanced Advanced Filtering with Error Handling
 @st.cache_data
 def advanced_filtering_by_bond(smiles_list, bond_pattern):
     filtered_smiles = []
+    
+    # Ensure the bond pattern is recognized and valid
     if bond_pattern == "C-H":
         bond_smarts = "[C][H]"  # SMARTS for C-H bond
     else:
-        bond_smarts = bond_pattern  # Use the input directly for other bond patterns like C=C or C#C
+        try:
+            bond_smarts = bond_pattern  # Use the input directly for other bond patterns like C=C or C#C
+            if not Chem.MolFromSmarts(bond_smarts):
+                raise ValueError(f"Invalid SMARTS pattern: {bond_smarts}")
+        except Exception as e:
+            st.error(f"Error with SMARTS pattern: {e}")
+            return filtered_smiles  # Return an empty list in case of error
+    
     for smiles in smiles_list:
         mol = Chem.MolFromSmiles(smiles)
-        mol_with_h = Chem.AddHs(mol)  # Add explicit hydrogens
-        if mol_with_h.HasSubstructMatch(Chem.MolFromSmarts(bond_smarts)):
-            filtered_smiles.append(smiles)
+        
+        if mol:
+            mol_with_h = Chem.AddHs(mol)  # Add explicit hydrogens
+            
+            if mol_with_h and Chem.MolFromSmarts(bond_smarts):
+                # Now check for substructure matches
+                if mol_with_h.HasSubstructMatch(Chem.MolFromSmarts(bond_smarts)):
+                    filtered_smiles.append(smiles)
+        else:
+            st.warning(f"Could not process SMILES: {smiles}")
+    
     return filtered_smiles
 
 # Compute the distance matrix
@@ -128,7 +149,7 @@ def compute_serial_matrix(dist_mat, method="ward"):
 st.title("Spectra Visualization App")
 
 # Layout separation between input controls and plot
-col1, col2 = st.columns([1, 2])  # 1:2 ratio between input and plot
+col1, main_col2 = st.columns([1, 2])
 
 with col1:
     st.header("Input Controls")
@@ -175,10 +196,6 @@ with col1:
         columns_to_display = ["Formula", "IUPAC chemical name", "SMILES", "Molecular Weight", "Boiling Point (oC)"]
         st.write(data[columns_to_display])
 
-    # Ensure 'functional_groups' is initialized in session state
-    if 'functional_groups' not in st.session_state:
-        st.session_state['functional_groups'] = []  # Initialize the key if missing
-
     # UI Rearrangement
     # Step 1: Filter Selection
     use_smarts_filter = st.checkbox('Apply SMARTS Filtering')
@@ -213,23 +230,14 @@ with col1:
     # Removed the restrictive range for bin sizes
     bin_size = st.number_input('Enter bin size (resolution) in microns:', value=0.1)
 
-    # Add option to ignore Q-branch peaks during normalization
-    ignore_q_branch = st.checkbox('Ignore Q-branch for normalization', value=False)
-
-    q_branch_threshold = None
-    if ignore_q_branch:
-        q_branch_threshold = st.number_input('Enter Q-branch peak threshold (e.g., 0.8 for ignoring peaks > 80% of the maximum):', value=0.8)
-
-    # Step 5: Enable Peak Finding and Labeling checkbox (create dropdown for prominent peaks slider and functional group labels)
+    # Step 5: Enable Peak Finding and Conditional Dropdown for Peak Detection and Labels
     peak_finding_enabled = st.checkbox('Enable Peak Finding and Labeling', value=False)
 
-    # Add the slider and functional group options inside an expander, shown only when the checkbox is enabled
     if peak_finding_enabled:
-        with st.expander("Peak Finding and Functional Group Options"):
-            # Slider for number of prominent peaks
+        with st.expander("Peak Detection and Background Gas Labels"):
             num_peaks = st.slider('Number of Prominent Peaks to Detect', min_value=1, max_value=10, value=5)
-
-            # Background gas functional group labels
+            
+            # Step 7: Functional group input for background gas labeling (in wavelength)
             st.write("Background Gas Functional Group Labels")
 
             # Form to input functional group data based on wavelength
@@ -239,28 +247,24 @@ with col1:
                 add_fg = st.form_submit_button("Add Functional Group")
 
             if add_fg:
-                # Only update session state, no plotting here
                 st.session_state['functional_groups'].append({'Functional Group': fg_label, 'Wavelength': fg_wavelength})
 
             # Display existing functional group labels and allow deletion
             st.write("Current Functional Group Labels:")
             for i, fg in enumerate(st.session_state['functional_groups']):
-                col1, col2, col3 = st.columns([2, 2, 1])
-                col1.write(f"Functional Group: {fg['Functional Group']}")
-                col2.write(f"Wavelength: {fg['Wavelength']} µm")
-                if col3.button(f"Delete", key=f"delete_fg_{i}"):
+                label_col1, label_col2, delete_col = st.columns([2, 2, 1])  # Rename the columns here to avoid naming conflicts
+                label_col1.write(f"Functional Group: {fg['Functional Group']}")
+                label_col2.write(f"Wavelength: {fg['Wavelength']} µm")
+                if delete_col.button(f"Delete", key=f"delete_fg_{i}"):
                     st.session_state['functional_groups'].pop(i)
 
-    # Sonogram option (should always be visible)
+    # Step 6: Plot Sonogram (Outside of Expander)
     plot_sonogram = st.checkbox('Plot Sonogram for All Molecules', value=False)
 
-    # Confirm button at the bottom
-    st.markdown("<hr>", unsafe_allow_html=True)
-    confirm_button = st.button('Confirm Selection and Start Plotting', key="confirm")
+    # Step 8: Confirm button
+    confirm_button = st.button('Confirm Selection and Start Plotting')
 
-# Now ensure the entire plotting logic is inside col2 only
-with col2:
-    # Plotting triggered only by the "Confirm Selection and Start Plotting" button
+with main_col2:  # Use the main_col2 variable for the plot display to avoid conflicts
     if confirm_button:
         with st.spinner('Generating plots, this may take some time...'):
             if plot_sonogram:
@@ -315,30 +319,33 @@ with col2:
                     ax.fill_between(x_axis, 0, spectra, color=color_options[i % len(color_options)], 
                                     alpha=0.5, label=f"{smiles}")
 
-                    # Detect peaks and retrieve peak properties like prominence
-                    peaks, properties = find_peaks(spectra, height=0.05, prominence=0.1)
-                    
-                    # Sort the peaks by their prominence and select the top `num_peaks`
-                    if len(peaks) > 0:
-                        prominences = properties['prominences']
-                        peaks_with_prominences = sorted(zip(peaks, prominences), key=lambda x: x[1], reverse=True)
+                    if peak_finding_enabled:
+                        # Detect peaks and retrieve peak properties like prominence
+                        peaks, properties = find_peaks(spectra, height=0.05, prominence=0.1)
                         
-                        top_peaks = [p[0] for p in peaks_with_prominences[:num_peaks]]
+                        # Sort the peaks by their prominence and select the top `num_peaks`
+                        if len(peaks) > 0:
+                            prominences = properties['prominences']
+                            # Zip peaks with their corresponding prominences, then sort by prominence
+                            peaks_with_prominences = sorted(zip(peaks, prominences), key=lambda x: x[1], reverse=True)
+                            
+                            # Extract the top `num_peaks` most prominent peaks
+                            top_peaks = [p[0] for p in peaks_with_prominences[:num_peaks]]
 
-                        # Now label the top peaks
-                        for peak in top_peaks:
-                            peak_wavelength = x_axis[peak]
-                            peak_intensity = spectra[peak]
-                            ax.text(peak_wavelength, peak_intensity + 0.05, f'{round(peak_wavelength, 1)}', 
-                                    fontsize=10, ha='center', color=color_options[i % len(color_options)])
+                            # Now label the top peaks
+                            for peak in top_peaks:
+                                peak_wavelength = x_axis[peak]
+                                peak_intensity = spectra[peak]
+                                # Label the peaks with wavelength
+                                ax.text(peak_wavelength, peak_intensity + 0.05, f'{round(peak_wavelength, 1)}', 
+                                        fontsize=10, ha='center', color=color_options[i % len(color_options)])
 
                 # Add functional group labels for background gases based on wavelength
                 for fg in st.session_state['functional_groups']:
                     fg_wavelength = fg['Wavelength']
                     fg_label = fg['Functional Group']
-                    # Add a highlighted box annotation for the functional group
                     ax.axvline(fg_wavelength, color='grey', linestyle='--')
-                    ax.text(fg_wavelength, 1, fg_label, fontsize=12, color='black', ha='center', bbox=dict(facecolor='yellow', alpha=0.5))
+                    ax.text(fg_wavelength, 1, fg_label, fontsize=12, color='black', ha='center')
 
                 # Customize plot
                 ax.set_xlim([x_axis.min(), x_axis.max()])
@@ -346,6 +353,7 @@ with col2:
                 major_ticks = [3, 4, 5, 6, 7, 8, 9, 11, 12, 15, 20]
                 ax.set_xticks(major_ticks)
 
+                # Number of label matches
                 ax.set_xticklabels([str(tick) for tick in major_ticks])
 
                 ax.tick_params(direction="in",
